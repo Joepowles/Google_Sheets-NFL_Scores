@@ -1,0 +1,359 @@
+// Created by Joe Powles
+// email joepowles@gmail.com
+
+const NFL_TEAMS_API = "http://site.api.espn.com/apis/site/v2/sports/football/nfl/teams";
+const NFL_SCHEDULE_API = "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2";
+const ss = SpreadsheetApp.getActiveSpreadsheet();
+const timestamp = new Date();
+const MILLIS_PER_DAY = 1000 * 60 * 60 * 24;
+const MILLIS_PER_HOUR = 1000 * 60 * 60;
+
+// Add custom menu to spreadsheet
+function onOpen() {
+  var maintenanceMenu = SpreadsheetApp.getUi().createMenu("Setup")
+    .addItem('Initiate Spreadsheet', 'initialize');
+  
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu("NFL Scores Settings")
+    .addSeparator()
+    .addItem("Update This week's scores", 'thisWeek')
+    .addItem("Update Season scores","thisSeason")
+    .addSeparator()
+    .addSubMenu(maintenanceMenu)
+    .addToUi();
+}
+
+/**
+ * Set a trigger for this function to run every minute.
+ * Runs a check to see if NFL scores need to be updated.
+ * If no updates are needed no calls to the APIs are made and function ends.
+ */
+function autoRunScript() {
+  var sheetTimestamps = ss.getSheetByName("Timestamps");
+  var weekNextUpdate = sheetTimestamps.getRange("C2").getValue();
+ 
+
+  if (!weekNextUpdate) thisWeek();                                  //update this week scores if no timestamp was set for next update.
+  if (weekNextUpdate <= timestamp) thisWeek();                      //update this week scores if it is past the timestamp for the next update.
+
+  var seasonNextUpdate = sheetTimestamps.getRange("C3").getValue();
+
+  if (!seasonNextUpdate) thisSeason();                              //update the season scores if no timestamp was set for next update.
+  if (weekNextUpdate <= timestamp) thisSeason();                    //update the season scores if it is past the timestamp for the next update.
+  
+
+}
+
+/**
+ * Run this function once to create all neccesary sheets, label all headers, and insert functional formulas if needed.
+ */
+function initialize() {
+  var sheetTimestamps = ss.getSheetByName("Timestamps");
+  if (!sheetTimestamps) {
+    ss.insertSheet("Timestamps");
+    sheetTimestamps = ss.getSheetByName("Timestamps");
+    sheetTimestamps.deleteRows(21,980);
+    sheetTimestamps.deleteColumns(4,23);
+    let header = [["SheetName","LastUpdate","Status"]];
+    let sheetnames = ["ThisWeek","ThisSeason"];
+    sheetTimestamps.getRange(1,1,1,3).setValues(header);
+    sheetTimestamps.getRange(2,1,sheetnames.length,1).setValues(sheetnames);
+  }
+  var sheetThisWeek = ss.getSheetByName("ThisWeek");
+  if(!sheetThisWeek) {
+    ss.insertSheet("ThisWeek");
+    sheetThisWeek = ss.getSheetByName("ThisWeek");
+    sheetThisWeek.deleteRows(18,983);
+    let header = [["GameID","Year","Week","KickOff","GameState","HomeTeam","HomeScore","AwayTeam","AwayScore","GamePeriod","DisplayClock","Spread","OverUnder","DownDistance","Yardline","Possession","RedZone","HomeWinOdds","AwayWinOdds","GameLink","Winning","Losing","Tied","Tied","Win","Loss","Tie","Tie"]];
+    let formulas = [['=ARRAYFORMULA(if(E2:E17="pre","",if(G2:G17>I2:I17,F2:F17,if(G2:G17<I2:I17,H2:H17,""))))','=ARRAYFORMULA(if(E2:E17="pre","",if(G2:G17<I2:I17,F2:F17,if(G2:G17>I2:I17,H2:H17,""))))','=ARRAYFORMULA(if(E2:E17="pre","",if(G2:G17=I2:I17,F2:F17,"")))','=ARRAYFORMULA(if(E2:E17="pre","",if(G2:G17=I2:I17,H2:H17,"")))','=ARRAYFORMULA(if(E2:E17="post",if(G2:G17>I2:I17,F2:F17,if(G2:G17<I2:I17,H2:H17,"")),""))','=ARRAYFORMULA(if(E2:E17="post",if(G2:G17<I2:I17,F2:F17,if(G2:G17>I2:I17,H2:H17,"")),""))','=ARRAYFORMULA(if(E2:E17="post",if(G2:G17=I2:I17,F2:F17,""),""))','=ARRAYFORMULA(if(E2:E17="post",if(G2:G17=I2:I17,H2:H17,""),""))']]
+    sheetThisWeek.getRange(1,1,1,header[0].length).setValues(header);
+    sheetThisWeek.getRange(2,21,1,formulas[0].length).setValues(formulas);
+  }
+
+  var sheetThisSeason = ss.getSheetByName("ThisSeason");
+  if (!sheetThisSeason) {
+    ss.insertSheet("ThisSeason");
+    sheetThisSeason = ss.getSheetByName("ThisSeason");
+    sheetThisSeason.deleteRows(290,711);
+    sheetThisSeason.deleteColumns(13,14);
+    let header = [["GameID","WeekNumber","KickoffTime","Home","Score","Away","Score","State","Link","WIN","LOSS","TIE","TIE"]];
+    let formulas = [['=arrayformula(if(H2:H="post",if(E2:E>G2:G,D2:D,if(E2:E<G2:G,F2:F,"")),""))','=arrayformula(if(H2:H="post",if(E2:E<G2:G,D2:D,if(E2:E>G2:G,F2:F,"")),""))','=arrayformula(if(H2:H="post",if(E2:E=G2:G,D2:D,""),""))','=arrayformula(if(H2:H="post",if(E2:E=G2:G,F2:F,""),""))']]
+    sheetThisSeason.getRange(1,1,1,header[0].length).setValues(header);
+    sheetThisSeason.getRange(2,10,1,formulas[0].length).setValues(formulas);
+    var range = sheetThisSeason.getRange("A1:M300");
+    var rule = SpreadsheetApp.newConditionalFormatRule()
+      .withCriteria(SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA,["=isOdd($B:$B)"])
+      .setBackground("#BDC1C6")
+      .setRanges([range])
+      .build();
+    var rules = sheetThisSeason.getConditionalFormatRules();
+    rules.push(rule);
+    sheetThisSeason.setConditionalFormatRules(rules);
+  }
+
+  var sheetReadMe = ss.getSheetByName("ReadMe");
+  if(!sheetReadMe) {
+    ss.insertSheet("ReadMe");
+    sheetReadMe = ss.getSheetByName("ReadMe");
+    sheetReadMe.deleteRows(6,995);
+    sheetReadMe.deleteColumns(7,20);
+    sheetReadMe.getRange(1,1,6,7).merge();
+    sheetReadMe.getRange(1,1).setValue("Open Script Editor [Extensions]>[Apps Script] "+ String.fromCharCode(10) +"Inside Triggers, create a new trigger to run script labelled 'AutoRunScript'. "+ String.fromCharCode(10) +"Deployment should be 'Head', event source should be 'Time-driven', "+ String.fromCharCode(10) +"type of trigger should be 'Minutes timer', and interval should be set to 'Every minute' "+ String.fromCharCode(10) + String.fromCharCode(10) +"That's it! Automatic updating NFL scores!");
+  }
+    
+  var sheetSettings = ss.getSheetByName("Settings");
+  if(!sheetSettings) {
+    ss.insertSheet("Settings");
+    sheetSettings = ss.getSheetByName("Settings");
+    sheetSettings.deleteRows(6,995);
+    sheetSettings.deleteColumns(3,24);
+    let data = [['','Setting','Example'],
+      ['Timezone:','CST','"CST" "GMT" etc.'],
+      ['Datecode:','MM-dd-YYY hh:mm a','Java DateFormat'],
+      ['Season:','','Leave blank for current year.'],
+      ['# of Weeks:','','Automatically filled.'],
+      ['Current Week:','','Automatically filled.']]
+    sheetSettings.getRange(1,1,data.length,data[0].length).setValues(data);
+  }
+    
+}
+/**
+ * This function fills in the scoreboard for this week.
+ */
+function thisWeek() {
+  let textJSON = UrlFetchApp.fetch(NFL_SCHEDULE_API).getContentText();
+  let objJSON = JSON.parse(textJSON);
+  let events = objJSON.events;
+  let season = objJSON.season.year;
+  let seasonType = objJSON.events[0].season.slug;
+  let weekNumber = objJSON.week.number;
+  let scoreboard = [];
+  let numberOfWeeks = objJSON.leagues[0].calendar[1].entries.length;
+  var sheetTimestamps = ss.getSheetByName("Timestamps");
+  var sheetThisWeek = ss.getSheetByName("ThisWeek");
+  var topID = sheetThisWeek.getRange(2,2).getValue();
+  var requireUpdate = false;
+  var teamsOnBye = objJSON.week.teamsOnBye;
+  var sheetSettings = ss.getSheetByName("Settings");
+  var timeZone = sheetSettings.getRange(2,2).getValue();
+  var dateCode = sheetSettings.getRange(3,2).getValue();
+  var nextUpdate;
+  var updateDue = sheetTimestamps.getRange("C2").getValue();
+  var nextGame;
+  
+  if (Number(topID) != Number(events[0].competitions[0].id)) var requireUpdate = true;  //if first game id in JSON is not the same as first game id in the spreadsheet, update scoreboard.
+  if (updateDue <= timestamp) requireUpdate = true;                                     //if current time is past next update timestamp, update scoreboard.
+
+  for (var i in events){
+    let game = events[i].competitions[0]; // JSON object for game.
+    let gameID = Number(game.id); // game ID number
+    let kickOff = Utilities.formatDate(new Date(game.date),timeZone,dateCode); // Kickoff time
+    let homeTeam = game.competitors[0].team.abbreviation; // Home team abbreviate name. Example "BAL"
+    let homeID = game.competitors[0].id;  // Home team ID for setting possession field
+    let awayTeam = game.competitors[1].team.abbreviation; // Away team abbreviated name. Example "DEN"
+    let awayID = game.competitors[1].id;  // Away team ID for setting possession field
+    let homeScore = Number(game.competitors[0].score);  // Home team score
+    let awayScore = Number(game.competitors[1].score);  // Away team score
+    let displayClock = game.status.displayClock;  // current game clock in m:ss format. Example "2:45"
+    let gamePeriod = game.status.period;  // current period. Example "4"
+    let gameState = game.status.type.state; // "pre" "in" or "post"
+
+    if (gameState == "pre") {
+      if (!nextGame || nextGame > kickOff) nextGame = kickOff;
+      if (!nextUpdate || nextGame < nextUpdate) nextUpdate = kickOff;
+    }
+
+    if (gameState == "in") { // if any game in the scoreboard is active then set flag to update scoreboard.
+      requireUpdate = true;
+      nextUpdate = timestamp ; 
+    }
+
+    try { // game odds shows team abbreviation favored to win followed by the going spread. Example "KC -7.0"
+      var odds = game.odds[0].details;
+    }catch(e){
+      var odds = "";
+    }
+    try { // overUnder shows the vegas over under score. Example "42"
+      var overUnder = game.odds[0].overUnder;
+    }catch(e){
+      var overUnder = "";
+    }
+    try { // downDistance shows the current down number followed by the yardage needed for 1st down. Example "2nd & 5"
+      var downDistance = game.situation.shortDownDistanceText;
+    }catch(e){
+      var downDistance = "";
+    }
+    try { // yardline shows the current scrimage yard line. Example "LAR 27"
+      var yardline = game.situation.possessionText;
+    }catch(e){
+      var yardline = "";
+    }
+    try { // possession shows the team abbreviation that currently has Possession. Example "DEN"
+      var possession = game.situation.possession;
+      if (possession == homeID) possession = homeTeam;
+      else if (possession == awayID) possession = awayTeam;
+    }catch(e){
+      var possession = "";
+    }
+    try { // redZone shows a true or false as to weather the offensive team in is the red zone.
+      var redZone = game.situation.isRedZone;
+    }catch(e){
+      var redZone = "";
+    }
+    try { // homeWinPercent shows the probability that the home team is going to win the game. Example "0.875"
+      var homeWinPercent = game.situation.lastPlay.probability.homeWinPercentage;
+    }catch(e){
+      var homeWinPercent = "";
+    }
+    try { // awayWinPercent shows the probability that the away team is going to win the game. Example "0.125"
+      var awayWinPercent = game.situation.lastPlay.probability.awayWinPercentage;
+    }catch(e){
+      var awayWinPercent = "";
+    }
+    let gameLink = events[i].links[0].href; // url to ESPN website with live scores for each game.
+    
+    scoreboard[i]=[gameID,season,seasonType+" "+weekNumber,kickOff,gameState,homeTeam,homeScore,awayTeam,awayScore,gamePeriod,displayClock,odds,overUnder,downDistance,yardline,possession,redZone,homeWinPercent,awayWinPercent,gameLink];
+  }
+
+  if(teamsOnBye)  {
+    for (var i=0; i<teamsOnBye.length/2; i++){  // place teams on bye in the scoreboard.
+      scoreboard[15-i]=["","","","","",teamsOnBye[2*i].abbreviation,"BYE",teamsOnBye[2*i+1].abbreviation,"BYE","","","","","","","","","","",""]
+    }
+  }
+
+  if (!nextUpdate) {
+    nextUpdate = new Date(timestamp.getTime() + MILLIS_PER_HOUR*12);
+    thisSeason(true);
+  }
+  var timestampArray = [["ThisWeek",Utilities.formatDate(new Date(timestamp),timeZone,dateCode),Utilities.formatDate(new Date(nextUpdate),timeZone,dateCode)]];
+  Utilities.formatDate(new Date(timestamp),timeZone,dateCode)
+  // if any of the above flags were set to update the scoreboard only then should the spreadsheet be modified.
+  if (requireUpdate) {
+    sheetThisWeek.getRange(2,1,scoreboard.length,scoreboard[0].length).clearContent;
+    sheetThisWeek.getRange(2,1,scoreboard.length,scoreboard[0].length).setValues(scoreboard);
+    sheetSettings.getRange(5,2).setValue(numberOfWeeks);
+    sheetSettings.getRange(6,2).setValue(weekNumber);
+    sheetTimestamps.getRange(2,1,1,3).setValues(timestampArray);
+  }
+}
+
+/**
+ * This function fills in the schedule on "ThisSeason" tab.
+ * Ideally you only run this function once per week. It takes some time to pull 18 api requests.
+ */
+function thisSeason(automated) {
+  var sheetThisWeek = ss.getSheetByName("ThisWeek");
+  var sheetThisSeason = ss.getSheetByName("ThisSeason");
+  var sheetSettings = ss.getSheetByName("Settings");
+  var sheetTimestamps = ss.getSheetByName("Timestamps");
+  var sheetSchedule = ss.getSheetByName("Schedule");
+
+  var year = sheetSettings.getRange(4,2).getValue();
+  var thisYear = sheetThisWeek.getRange(2,2).getValue();
+  var numberOfWeeks = sheetSettings.getRange(5,2).getValue();
+  var weekStartTimes = sheetSchedule.getRange(2,2,18,1).getValues();
+  var schedule = [];
+  var updateDue = sheetTimestamps.getRange("C3").getValue();
+  var nextUpdate;
+  var requireUpdate = false;
+  var timeZone = sheetSettings.getRange(2,2).getValue();
+  var dateCode = sheetSettings.getRange(3,2).getValue();
+
+  if (year == "") year = thisYear;
+  if (updateDue < timestamp || !automated || !updateDue) requireUpdate = true;
+
+  for ( var startTime in weekStartTimes){
+    if (weekStartTimes[startTime][0] < timestamp) nextUpdate = new Date(weekStartTimes[startTime][0].getTime()+MILLIS_PER_DAY*6)
+  }
+  if(!nextUpdate) nextUpdate = new Date(weekStartTimes[0][0].getTime()+MILLIS_PER_HOUR);
+  
+  if (requireUpdate){
+    for (var i = 1; i<numberOfWeeks+1; i++){   // pull the api once per week
+      
+      let schedulePart = getScoresForWeek(i,year);
+      schedule = schedule.concat(schedulePart);
+    }
+
+    var timestampArray = [["ThisSeason",Utilities.formatDate(new Date(timestamp),timeZone,dateCode),Utilities.formatDate(new Date(nextUpdate),timeZone,dateCode)]];
+
+    sheetThisSeason.getRange(2,1,schedule.length,schedule[0].length).setValues(schedule);
+    sheetTimestamps.getRange("B3").setValue(timestamp);
+    sheetTimestamps.getRange(3,1,1,3).setValues(timestampArray);
+  }
+}
+
+/**
+ * Subfunction of thisSeason function.
+ * Pulls API of specific week/season based on inputs.
+ * Returns 16x9 array of scores of a specific week.
+ */
+function getScoresForWeek(week,year){
+  if(!year) var apiYear = "";
+  else var apiYear = "&dates="+year;
+  let apiLink = NFL_SCHEDULE_API+apiYear+"&week="+week;
+  let textJSON = UrlFetchApp.fetch(apiLink).getContentText();
+  let objJSON = JSON.parse(textJSON);
+  let events = objJSON.events;
+  let weekNumber = objJSON.week.number;
+  var teamsOnBye = objJSON.week.teamsOnBye;
+  let schedulePart = [];
+  var sheetSettings = ss.getSheetByName("Settings");
+
+  var timeZone = sheetSettings.getRange(2,2).getValue();
+  var dateCode = sheetSettings.getRange(3,2).getValue();
+
+  for (var i in events){
+    let game = events[i].competitions[0]; // JSON object for game.
+    let gameID = Number(game.id); // game ID number
+    let kickOff = Utilities.formatDate(new Date(game.date),timeZone,dateCode); // Kickoff time
+    let homeTeam = game.competitors[0].team.abbreviation; // Home team abbreviate name. Example "BAL"
+    let awayTeam = game.competitors[1].team.abbreviation; // Away team abbreviated name. Example "DEN"
+    let homeScore = Number(game.competitors[0].score);  // Home team score
+    let awayScore = Number(game.competitors[1].score);  // Away team score
+    let gameState = game.status.type.state; // "pre" "in" or "post"
+    let gameLink = events[i].links[0].href; // url to ESPN website with live scores for each game.
+    
+    schedulePart.push([gameID,weekNumber,kickOff,homeTeam,homeScore,awayTeam,awayScore,gameState,gameLink]);
+  }
+
+  if(teamsOnBye)  {
+    for (var i=0; i<teamsOnBye.length/2; i++){  // place teams on bye in the scoreboard.
+      schedulePart.push(["",week,"",teamsOnBye[2*i].abbreviation,"BYE",teamsOnBye[2*i+1].abbreviation,"BYE","",""]);
+    }
+  }
+
+  return(schedulePart);
+}
+
+/**
+ * This functions pulls the api for the current year set in Settings.
+ * It sets a timestamp for the start and ending of each week in the schedule sheet.
+ */
+function getSchedule(){
+  var sheetThisWeek = ss.getSheetByName("ThisWeek");
+  var sheetSettings = ss.getSheetByName("Settings");
+  var sheetSchedule = ss.getSheetByName("Schedule");
+
+  var year = sheetSettings.getRange(4,2).getValue();
+  var thisYear = sheetThisWeek.getRange(2,2).getValue();
+  var schedule = [];
+  var timeZone = sheetSettings.getRange(2,2).getValue();
+  var dateCode = sheetSettings.getRange(3,2).getValue();
+
+  if(!year) var apiYear = "&dates="+thisYear;
+  else var apiYear = "&dates="+year;
+  let apiLink = NFL_SCHEDULE_API+apiYear;
+  let textJSON = UrlFetchApp.fetch(apiLink).getContentText();
+  let objJSON = JSON.parse(textJSON);
+  let calendar = objJSON.leagues[0].calendar[1].entries;
+
+  for (var i in calendar){
+    let weekNum = calendar[i].value;
+    let startDate = Utilities.formatDate(new Date(calendar[i].startDate),timeZone,dateCode);
+    let endDate = Utilities.formatDate(new Date(calendar[i].endDate),timeZone,dateCode);
+
+    schedule.push([weekNum,startDate,endDate]);
+  }
+
+  sheetSchedule.getRange(2,1,schedule.length,schedule[0].length).setValues(schedule);
+}
