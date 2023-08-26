@@ -138,7 +138,7 @@ function thisWeek() {
   var timeZone = sheetSettings.getRange(2,2).getValue();
   var dateCode = sheetSettings.getRange(3,2).getValue();
   var nextUpdate;
-  var updateDue = sheetTimestamps.getRange("C2").getValue();
+  var updateDue =Utilities.formatDate( new Date(sheetTimestamps.getRange("C2").getValue().getTime()),timeZone,dateCode);
   var nextGame;
   
   if (Number(topID) != Number(events[0].competitions[0].id)) var requireUpdate = true;  //if first game id in JSON is not the same as first game id in the spreadsheet, update scoreboard.
@@ -159,8 +159,8 @@ function thisWeek() {
     let gameState = game.status.type.state; // "pre" "in" or "post"
 
     if (gameState == "pre") {
-      if (!nextGame || nextGame > kickOff) nextGame = kickOff;
-      if (!nextUpdate || nextGame < nextUpdate) nextUpdate = kickOff;
+      if (!nextGame || new Date(nextGame) > new Date(kickOff)) nextGame = kickOff;
+      if (!nextUpdate || new Date(nextGame) < new Date(nextUpdate)) nextUpdate = nextGame;
     }
 
     if (gameState == "in") { // if any game in the scoreboard is active then set flag to update scoreboard.
